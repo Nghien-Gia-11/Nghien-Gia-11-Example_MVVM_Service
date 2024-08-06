@@ -58,4 +58,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.fragment.ktx)
 
+    implementation(libs.circleimageview)
+
 }
