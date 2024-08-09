@@ -8,18 +8,18 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
-import android.view.View
+import android.util.Log
 import android.widget.SeekBar
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.asLiveData
 import androidx.lifecycle.lifecycleScope
+import com.example.example_mvvm_service.PlayMusicService.Companion.PAUSE
+import com.example.example_mvvm_service.PlayMusicService.Companion.PLAY
 import com.example.example_mvvm_service.databinding.ActivityMainBinding
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
-
 
     private lateinit var binding : ActivityMainBinding
     private lateinit var mediaPlayer: MediaPlayer
@@ -33,7 +33,7 @@ class MainActivity : AppCompatActivity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as PlayMusicService.PlayMusicBinder
             playMusicService = binder.getService()
-            /*observeMusicState()*/
+            observeMusicState()
             connect = true
             viewModel.song.value?.let { playMusicService?.setSongList(it)}
         }
@@ -49,18 +49,26 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
         Intent(this, PlayMusicService::class.java).also { intent ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
             bindService(intent, connection, Context.BIND_AUTO_CREATE)
         }
-
         binding.btnPlay.setOnClickListener {
-            if (PlayMusicService.isplaying){
-                playMusicService?.pause()
-            }else{
-                playMusicService?.play()
+            val action = when (playMusicService?.musicStateFlow?.value) {
+                PlayMusicService.PLAY -> PlayMusicService.PAUSE
+                PlayMusicService.PAUSE -> PlayMusicService.PLAY
+                else -> throw Exception("Invalid state")
             }
+            val intent = Intent(this, PlayMusicService::class.java).apply {
+                this.action = action
+            }
+            startService(intent)
         }
+
         binding.btnBack.setOnClickListener {
             playMusicService?.back()
         }
@@ -77,17 +85,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /*private fun observeMusicState() {
+    private fun updateIcon(state: String) {
+        binding.btnPlay.setImageResource(
+            when (state) {
+                PLAY -> R.drawable.pause
+                PAUSE -> R.drawable.play
+                else -> throw Exception("false1")
+            }
+        )
+    }
+
+    private fun observeMusicState() {
         lifecycleScope.launch {
-            playMusicService?.musicStateFlow?.asLiveData()?.observe(this@MainActivity) { state ->
+            playMusicService?.musicStateFlow?.collect { state ->
                 when (state){
-                    PlayMusicService.PLAY -> {
-                        PlayMusicService.isplaying = !PlayMusicService.isplaying
+                    PLAY -> {
+                        Log.e("state", state)
+                        updateIcon(state)
+                    }
+                    PAUSE -> {
+                        Log.e("state", state)
+                        updateIcon(state)
                     }
                 }
             }
         }
-    }*/
+    }
 
 
     private fun setSeekBar(song: Song) {

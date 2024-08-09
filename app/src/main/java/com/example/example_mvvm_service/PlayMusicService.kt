@@ -13,6 +13,7 @@ import android.media.MediaPlayer
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,21 +23,22 @@ class PlayMusicService : Service() {
 
     companion object {
         const val PLAY = "PLAY"
+        const val PAUSE = "PAUSE"
         const val NEXT = "NEXT"
         const val BACK = "BACK"
         const val INCREASE = "INCREASE"
         const val DECREASE = "DECREASE"
-        var isplaying = false
     }
 
-
-    private val _musicStateFlow = MutableStateFlow("PAUSE")
+    private val _musicStateFlow = MutableStateFlow(PAUSE)
     val musicStateFlow: StateFlow<String> get() = _musicStateFlow
     private lateinit var listSong: List<Song>
     private var current = 0
     private var mediaPlayer: MediaPlayer? = null
     private lateinit var audioManager: AudioManager
     private lateinit var notificationLayout: RemoteViews
+    private lateinit var notificationBuilder: NotificationCompat.Builder
+
     fun setSongList(songs: List<Song>) {
         listSong = songs
         if (mediaPlayer == null) {
@@ -47,7 +49,8 @@ class PlayMusicService : Service() {
     private fun initMediaPlayer() {
         mediaPlayer = MediaPlayer.create(this@PlayMusicService, listSong[current].song)
         mediaPlayer?.setOnCompletionListener {
-            _musicStateFlow.value = "NEXT"
+            _musicStateFlow.value = NEXT
+            next()
         }
     }
 
@@ -63,32 +66,30 @@ class PlayMusicService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotifyChannel()
-        startNotify()
-        startForeground(1, startNotify())
+        notificationBuilder = NotificationCompat.Builder(this, "user_input_notification_channel")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setCustomBigContentView(createNotificationLayout())
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        startForeground(1, notificationBuilder.build())
     }
 
-    @SuppressLint("ForegroundServiceType")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d("PlayMusicService", "Received action: ${intent?.action}")
         when (intent?.action) {
             PLAY -> {
-                playOrPause()
-                isplaying = !isplaying
+                Log.d("PlayMusicService", "Action: PLAY")
+                play()
+            }
+            PAUSE -> {
+                Log.d("PlayMusicService", "Action: PAUSE")
+                pause()
             }
             BACK -> back()
             NEXT -> next()
             INCREASE -> increaseVolume()
             DECREASE -> decreaseVolume()
-            }
-        updateNotification()
-        return START_STICKY
-    }
-
-    private fun playOrPause() {
-        if (isplaying) {
-            pause()
-        } else {
-            play()
         }
+        return START_STICKY
     }
 
     fun increaseVolume() {
@@ -101,10 +102,16 @@ class PlayMusicService : Service() {
         _musicStateFlow.value = DECREASE
     }
 
-    fun pause() {
-        mediaPlayer?.pause()
+    fun play() {
         _musicStateFlow.value = PLAY
-        isplaying = !isplaying
+        mediaPlayer?.start()
+        updateNotification()
+    }
+
+    fun pause() {
+        _musicStateFlow.value = PAUSE
+        mediaPlayer?.pause()
+        updateNotification()
     }
 
     fun next() {
@@ -116,15 +123,9 @@ class PlayMusicService : Service() {
 
     fun back() {
         mediaPlayer?.stop()
-        current = (current + 1) % listSong.size
+        current = (current - 1 + listSong.size) % listSong.size
         initMediaPlayer()
         play()
-    }
-
-    fun play() {
-        mediaPlayer?.start()
-        _musicStateFlow.value = PLAY
-        isplaying = !isplaying
     }
 
     private fun createNotifyChannel() {
@@ -140,18 +141,16 @@ class PlayMusicService : Service() {
         }
     }
 
-    @SuppressLint("ForegroundServiceType")
-    private fun startNotify(): Notification {
-        val playIntent = Intent(this, PlayMusicService::class.java).apply { action = PLAY }
-
-
+    @SuppressLint("UnspecifiedImmutableFlag")
+    private fun createNotificationLayout(): RemoteViews {
+        val playAction = if (_musicStateFlow.value == PLAY) PAUSE else PLAY
+        val playIntent = Intent(this, PlayMusicService::class.java).apply { action = playAction }
         val playPendingIntent = PendingIntent.getService(
             this,
             0,
             playIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
 
         val backIntent = Intent(this, PlayMusicService::class.java).apply { action = BACK }
         val backPendingIntent = PendingIntent.getService(
@@ -161,7 +160,6 @@ class PlayMusicService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-
         val nextIntent = Intent(this, PlayMusicService::class.java).apply { action = NEXT }
         val nextPendingIntent = PendingIntent.getService(
             this,
@@ -170,16 +168,14 @@ class PlayMusicService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val decreaseIntent =
-            Intent(this, PlayMusicService::class.java).apply { action = DECREASE }
+        val decreaseIntent = Intent(this, PlayMusicService::class.java).apply { action = DECREASE }
         val decreasePendingIntent = PendingIntent.getService(
             this,
             4,
             decreaseIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val increaseIntent =
-            Intent(this, PlayMusicService::class.java).apply { action = INCREASE }
+        val increaseIntent = Intent(this, PlayMusicService::class.java).apply { action = INCREASE }
         val increasePendingIntent = PendingIntent.getService(
             this,
             5,
@@ -187,28 +183,28 @@ class PlayMusicService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        notificationLayout = RemoteViews(packageName, R.layout.layout_notify).apply {
+        return RemoteViews(packageName, R.layout.layout_notify).apply {
             setOnClickPendingIntent(R.id.btn_Play, playPendingIntent)
             setOnClickPendingIntent(R.id.btnBack, backPendingIntent)
             setOnClickPendingIntent(R.id.btnNext, nextPendingIntent)
             setOnClickPendingIntent(R.id.btnDecreaseVolume, decreasePendingIntent)
             setOnClickPendingIntent(R.id.btnIncreaseVolume, increasePendingIntent)
-            val icon = if (isplaying) R.drawable.pause else R.drawable.play
-            setImageViewResource(R.id.btn_Play, icon)
         }
-
-
-        return NotificationCompat.Builder(this, "user_input_notification_channel")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setCustomBigContentView(notificationLayout)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
     }
 
     private fun updateNotification() {
-        val notificationManager =
-            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(1, startNotify())
+        val icon = when (_musicStateFlow.value) {
+            PLAY -> R.drawable.pause
+            PAUSE -> R.drawable.play
+            else -> R.drawable.play // Fallback icon
+        }
+        Log.d("PlayMusicService", "Updating notification icon to: $icon")
+        notificationLayout = createNotificationLayout().apply {
+            setImageViewResource(R.id.btn_Play, icon)
+        }
+        notificationBuilder.setCustomBigContentView(notificationLayout)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(1, notificationBuilder.build())
     }
 
     override fun onDestroy() {
