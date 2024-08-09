@@ -16,7 +16,6 @@ import androidx.lifecycle.lifecycleScope
 import com.example.example_mvvm_service.PlayMusicService.Companion.PAUSE
 import com.example.example_mvvm_service.PlayMusicService.Companion.PLAY
 import com.example.example_mvvm_service.databinding.ActivityMainBinding
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -33,7 +32,9 @@ class MainActivity : AppCompatActivity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as PlayMusicService.PlayMusicBinder
             playMusicService = binder.getService()
-            observeMusicState()
+            observeMusicState() // hứng trạng thái phát nhạc
+            observeTimeSong() // hứng thời gian của bát hát
+            observeCurrentTime() // hứng thời gian thực chạy nhạc
             connect = true
             viewModel.song.value?.let { playMusicService?.setSongList(it)}
         }
@@ -41,7 +42,6 @@ class MainActivity : AppCompatActivity() {
         override fun onServiceDisconnected(name: ComponentName?) {
             connect = false
         }
-
     }
 
 
@@ -57,16 +57,17 @@ class MainActivity : AppCompatActivity() {
             }
             bindService(intent, connection, Context.BIND_AUTO_CREATE)
         }
+
         binding.btnPlay.setOnClickListener {
-            val action = when (playMusicService?.musicStateFlow?.value) {
-                PlayMusicService.PLAY -> PlayMusicService.PAUSE
-                PlayMusicService.PAUSE -> PlayMusicService.PLAY
-                else -> throw Exception("Invalid state")
+            when (playMusicService?.musicStateFlow?.value) {
+                PLAY -> {
+                    playMusicService?.pause()
+                    setSeekBar()
+                }
+
+                PAUSE -> playMusicService?.play()
+                else -> throw Exception("false")
             }
-            val intent = Intent(this, PlayMusicService::class.java).apply {
-                this.action = action
-            }
-            startService(intent)
         }
 
         binding.btnBack.setOnClickListener {
@@ -112,19 +113,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-    private fun setSeekBar(song: Song) {
-        binding.seekBar.max = 100000
+    private fun observeCurrentTime() {
         lifecycleScope.launch {
-            while (mediaPlayer.isPlaying) {
-                binding.seekBar.progress = mediaPlayer.currentPosition
-                delay(1000)
+            playMusicService?.currentTimeSong?.collect {
+                binding.seekBar.progress = it
             }
         }
+    }
+
+    private fun observeTimeSong() {
+        lifecycleScope.launch {
+            playMusicService?.timeSong?.collect { time ->
+                binding.seekBar.max = time
+            }
+        }
+    }
+
+    private fun setSeekBar() {
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    mediaPlayer.seekTo(progress)
+                    playMusicService?.mediaPlayer?.seekTo(progress)
                 }
             }
 

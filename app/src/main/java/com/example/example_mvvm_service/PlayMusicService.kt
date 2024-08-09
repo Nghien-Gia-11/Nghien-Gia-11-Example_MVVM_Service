@@ -1,7 +1,6 @@
 package com.example.example_mvvm_service
 
 import android.annotation.SuppressLint
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -16,8 +15,14 @@ import android.os.IBinder
 import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class PlayMusicService : Service() {
 
@@ -31,13 +36,24 @@ class PlayMusicService : Service() {
     }
 
     private val _musicStateFlow = MutableStateFlow(PAUSE)
-    val musicStateFlow: StateFlow<String> get() = _musicStateFlow
+    val musicStateFlow: StateFlow<String> get() = _musicStateFlow // flow quản lý state chơi nhạc
+
+    private val _currentTimeSong = MutableStateFlow(0)
+    val currentTimeSong: StateFlow<Int> get() = _currentTimeSong // flow quản lý thời gian thực chạy nhạc
+
+    private val _timeSong = MutableStateFlow(0) // flow quản lý thời gian của bài hát
+    val timeSong: StateFlow<Int> get() = _timeSong
+
+    private val coroutineScope = CoroutineScope(Dispatchers.Default + Job())
+    private var timeUpdateJob: Job? = null // job quản lý lấy thời gian thực nhạc đang phát
+
     private lateinit var listSong: List<Song>
     private var current = 0
-    private var mediaPlayer: MediaPlayer? = null
+    var mediaPlayer: MediaPlayer? = null
     private lateinit var audioManager: AudioManager
     private lateinit var notificationLayout: RemoteViews
     private lateinit var notificationBuilder: NotificationCompat.Builder
+
 
     fun setSongList(songs: List<Song>) {
         listSong = songs
@@ -50,8 +66,26 @@ class PlayMusicService : Service() {
         mediaPlayer = MediaPlayer.create(this@PlayMusicService, listSong[current].song)
         mediaPlayer?.setOnCompletionListener {
             _musicStateFlow.value = NEXT
+            _currentTimeSong.value = mediaPlayer?.currentPosition ?: 0
             next()
         }
+        startSeekbar()
+        // set thời gian bài hát
+        _timeSong.value = listSong[current].time
+    }
+
+    private fun startSeekbar() {
+        // bắt đầu đếm thời gian thực
+        timeUpdateJob = coroutineScope.launch {
+            while (isActive) {
+                delay(1000)
+                _currentTimeSong.value = mediaPlayer?.currentPosition ?: 0
+            }
+        }
+    }
+
+    private fun stopSeekbar() {
+        timeUpdateJob?.cancel()
     }
 
     override fun onBind(intent: Intent?): IBinder {
@@ -209,6 +243,7 @@ class PlayMusicService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopSeekbar()
         mediaPlayer?.release()
     }
 }
