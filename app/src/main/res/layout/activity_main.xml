@@ -7,36 +7,40 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-
-    <de.hdodenhof.circleimageview.CircleImageView
-        android:id="@+id/imgSing"
-        android:layout_width="match_parent"
-        android:src="@drawable/hoa"
-        app:civ_border_color="#AD8BE0"
+    <LinearLayout
+        android:id="@+id/layoutBtnVolume"
         android:layout_height="wrap_content"
-        app:civ_border_width="5dp"
-        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
+        android:layout_marginTop="20dp"
+        android:orientation="vertical"
         android:layout_width="match_parent"
-        android:id="@+id/tvNameSong"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="90dp"
-        app:layout_constraintBottom_toTopOf="@id/layoutButton"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
 
+        <Button
+            android:id="@+id/btnIncreaseVolume"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="+"
+            android:textSize="30sp" />
+
+        <Button
+            android:id="@+id/btnDecreaseVolume"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="-"
+            android:textSize="30sp" />
+    </LinearLayout>
 
     <SeekBar
         android:id="@+id/seekBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="20dp"
+        android:layout_marginTop="40dp"
         android:layout_marginEnd="20dp"
-        android:layout_marginBottom="30dp"
-        app:layout_constraintBottom_toTopOf="@id/layoutButton"
+        app:layout_constraintTop_toBottomOf="@id/layoutBtnVolume"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
@@ -45,10 +49,10 @@
         android:id="@+id/layoutButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="50dp"
+        android:layout_marginTop="100dp"
         android:orientation="horizontal"
         android:padding="10dp"
-        app:layout_constraintBottom_toBottomOf="parent">
+        app:layout_constraintTop_toBottomOf="@id/seekBar">
 
         <ImageButton
             android:id="@+id/btnBack"
@@ -63,14 +67,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             app:srcCompat="@drawable/play" />
-
-        <ImageButton
-            android:id="@+id/btnPause"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:visibility="gone"
-            app:srcCompat="@drawable/pause" />
 
         <ImageButton
             android:id="@+id/btnNext"

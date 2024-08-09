@@ -8,85 +8,123 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.media.MediaPlayer
-import android.net.Uri
+import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 class PlayMusicService : Service() {
 
-    private var mediaPlayer: MediaPlayer? = null
-
     companion object {
-        var instance: PlayMusicService? = null
+        const val PLAY = "PLAY"
+        const val NEXT = "NEXT"
+        const val BACK = "BACK"
+        const val INCREASE = "INCREASE"
+        const val DECREASE = "DECREASE"
+        var isplaying = false
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+
+    private val _musicStateFlow = MutableStateFlow("PAUSE")
+    val musicStateFlow: StateFlow<String> get() = _musicStateFlow
+    private lateinit var listSong: List<Song>
+    private var current = 0
+    private var mediaPlayer: MediaPlayer? = null
+    private lateinit var audioManager: AudioManager
+    private lateinit var notificationLayout: RemoteViews
+    fun setSongList(songs: List<Song>) {
+        listSong = songs
+        if (mediaPlayer == null) {
+            initMediaPlayer()
+        }
     }
 
+    private fun initMediaPlayer() {
+        mediaPlayer = MediaPlayer.create(this@PlayMusicService, listSong[current].song)
+        mediaPlayer?.setOnCompletionListener {
+            _musicStateFlow.value = "NEXT"
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder {
+        return PlayMusicBinder()
+    }
+
+    inner class PlayMusicBinder : Binder() {
+        fun getService(): PlayMusicService = this@PlayMusicService
+    }
+
+    @SuppressLint("ForegroundServiceType")
     override fun onCreate() {
         super.onCreate()
-        instance = this
-        setMedia()
         createNotifyChannel()
+        startNotify()
+        startForeground(1, startNotify())
     }
 
     @SuppressLint("ForegroundServiceType")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val userInput = intent?.getParcelableExtra<Song>("user_input")
-        val selected = intent?.getIntExtra("action", -1)
-
-        userInput?.let {
-            startForeground(1, startNotify(it))
-            startNotify(it)
-            when (selected) {
-                0 -> play(it)
-                1 -> back(it)
-                2 -> next(it)
-                3 -> pause(it)
+        when (intent?.action) {
+            PLAY -> {
+                playOrPause()
+                isplaying = !isplaying
             }
-        }
+            BACK -> back()
+            NEXT -> next()
+            INCREASE -> increaseVolume()
+            DECREASE -> decreaseVolume()
+            }
+        updateNotification()
         return START_STICKY
     }
 
-
-    @SuppressLint("ForegroundServiceType")
-    private fun pause(song: Song) {
-        if (mediaPlayer?.isPlaying == true) {
-            mediaPlayer!!.pause()
-            startForeground(1, startNotify(song))
+    private fun playOrPause() {
+        if (isplaying) {
+            pause()
+        } else {
+            play()
         }
     }
 
-    @SuppressLint("ForegroundServiceType")
-    private fun next(song: Song) {
-        if (mediaPlayer?.isPlaying == true) {
-            mediaPlayer!!.stop()
-            startForeground(1, startNotify(song))
-        }
+    fun increaseVolume() {
+        audioManager.adjustVolume(AudioManager.ADJUST_RAISE, AudioManager.FLAG_PLAY_SOUND)
+        _musicStateFlow.value = INCREASE
     }
 
-    private fun back(song: Song) {
-        if (mediaPlayer?.isPlaying == true) {
-            mediaPlayer!!.stop()
-        }
+    fun decreaseVolume() {
+        audioManager.adjustVolume(AudioManager.ADJUST_LOWER, AudioManager.FLAG_PLAY_SOUND)
+        _musicStateFlow.value = DECREASE
     }
 
-    private fun play(song: Song) {
-
+    fun pause() {
+        mediaPlayer?.pause()
+        _musicStateFlow.value = PLAY
+        isplaying = !isplaying
     }
 
-    private fun setMedia() {
-        mediaPlayer = MediaPlayer()
-        mediaPlayer?.setDataSource(
-            applicationContext,
-            Uri.parse("android.resource://" + packageName + "/" + R.raw.baonhieuloaihoa)
-        )
-        mediaPlayer?.prepare()
+    fun next() {
+        mediaPlayer?.stop()
+        current = (current + 1) % listSong.size
+        initMediaPlayer()
+        play()
+    }
+
+    fun back() {
+        mediaPlayer?.stop()
+        current = (current + 1) % listSong.size
+        initMediaPlayer()
+        play()
+    }
+
+    fun play() {
         mediaPlayer?.start()
+        _musicStateFlow.value = PLAY
+        isplaying = !isplaying
     }
 
     private fun createNotifyChannel() {
@@ -97,17 +135,16 @@ class PlayMusicService : Service() {
                 NotificationManager.IMPORTANCE_DEFAULT
             )
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             notificationManager.createNotificationChannel(channel)
         }
     }
 
     @SuppressLint("ForegroundServiceType")
-    private fun startNotify(song: Song) : Notification{
-        val notificationLayout = RemoteViews(packageName, R.layout.layout_notify).apply {
-            setTextViewText(R.id.tvNameSong, song.name)
-        }
+    private fun startNotify(): Notification {
+        val playIntent = Intent(this, PlayMusicService::class.java).apply { action = PLAY }
 
-        val playIntent = Intent(this, PlayMusicService::class.java).apply { action = "play" }
+
         val playPendingIntent = PendingIntent.getService(
             this,
             0,
@@ -116,7 +153,7 @@ class PlayMusicService : Service() {
         )
 
 
-        val backIntent = Intent(this, PlayMusicService::class.java).apply { action = "back" }
+        val backIntent = Intent(this, PlayMusicService::class.java).apply { action = BACK }
         val backPendingIntent = PendingIntent.getService(
             this,
             1,
@@ -125,7 +162,7 @@ class PlayMusicService : Service() {
         )
 
 
-        val nextIntent = Intent(this, PlayMusicService::class.java).apply { action = "next" }
+        val nextIntent = Intent(this, PlayMusicService::class.java).apply { action = NEXT }
         val nextPendingIntent = PendingIntent.getService(
             this,
             2,
@@ -133,27 +170,45 @@ class PlayMusicService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-
-        val pauseIntent = Intent(this, PlayMusicService::class.java).apply { action = "pause" }
-        val pausePendingIntent = PendingIntent.getService(
+        val decreaseIntent =
+            Intent(this, PlayMusicService::class.java).apply { action = DECREASE }
+        val decreasePendingIntent = PendingIntent.getService(
             this,
-            3,
-            pauseIntent,
+            4,
+            decreaseIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val increaseIntent =
+            Intent(this, PlayMusicService::class.java).apply { action = INCREASE }
+        val increasePendingIntent = PendingIntent.getService(
+            this,
+            5,
+            increaseIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        notificationLayout.setOnClickPendingIntent(R.id.btnPlay, playPendingIntent)
-        notificationLayout.setOnClickPendingIntent(R.id.btnPause, pausePendingIntent)
-        notificationLayout.setOnClickPendingIntent(R.id.btnBack, backPendingIntent)
-        notificationLayout.setOnClickPendingIntent(R.id.btnNext, nextPendingIntent)
+        notificationLayout = RemoteViews(packageName, R.layout.layout_notify).apply {
+            setOnClickPendingIntent(R.id.btn_Play, playPendingIntent)
+            setOnClickPendingIntent(R.id.btnBack, backPendingIntent)
+            setOnClickPendingIntent(R.id.btnNext, nextPendingIntent)
+            setOnClickPendingIntent(R.id.btnDecreaseVolume, decreasePendingIntent)
+            setOnClickPendingIntent(R.id.btnIncreaseVolume, increasePendingIntent)
+            val icon = if (isplaying) R.drawable.pause else R.drawable.play
+            setImageViewResource(R.id.btn_Play, icon)
+        }
+
 
         return NotificationCompat.Builder(this, "user_input_notification_channel")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setCustomContentView(notificationLayout)
+            .setCustomBigContentView(notificationLayout)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
+    }
 
-
+    private fun updateNotification() {
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(1, startNotify())
     }
 
     override fun onDestroy() {

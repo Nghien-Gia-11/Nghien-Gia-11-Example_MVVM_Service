@@ -1,13 +1,18 @@
 package com.example.example_mvvm_service
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.view.View
 import android.widget.SeekBar
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.asLiveData
 import androidx.lifecycle.lifecycleScope
 import com.example.example_mvvm_service.databinding.ActivityMainBinding
 import kotlinx.coroutines.delay
@@ -18,94 +23,80 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding : ActivityMainBinding
     private lateinit var mediaPlayer: MediaPlayer
-    private lateinit var listSong: List<Song>
-    private lateinit var intentForeground: Intent
-    private var currentSong = 0
-    private var check = false
+    private var connect = false
+    private var playMusicService: PlayMusicService? = null
+
+
     private val viewModel: SongViewModel by viewModels()
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as PlayMusicService.PlayMusicBinder
+            playMusicService = binder.getService()
+            /*observeMusicState()*/
+            connect = true
+            viewModel.song.value?.let { playMusicService?.setSongList(it)}
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            connect = false
+        }
+
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        intentForeground = Intent(this, PlayMusicService::class.java)
-
-        viewModel.song.observe(this) { item ->
-            listSong = item
+        Intent(this, PlayMusicService::class.java).also { intent ->
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
         }
 
         binding.btnPlay.setOnClickListener {
-            playSong(0)
-            binding.btnPlay.visibility = View.GONE
-            binding.btnPause.visibility = View.VISIBLE
+            if (PlayMusicService.isplaying){
+                playMusicService?.pause()
+            }else{
+                playMusicService?.play()
+            }
         }
         binding.btnBack.setOnClickListener {
-            playSong(1)
+            playMusicService?.back()
         }
         binding.btnNext.setOnClickListener {
-            playSong(2)
+            playMusicService?.next()
         }
-        binding.btnPause.setOnClickListener {
-            playSong(3)
-            binding.btnPlay.visibility = View.VISIBLE
-            binding.btnPause.visibility = View.GONE
+
+        binding.btnDecreaseVolume.setOnClickListener {
+            playMusicService?.decreaseVolume()
         }
-    }
 
-    private fun startService(song: Song, action : Int) {
-        intentForeground.putExtra("user_input", song)
-        intentForeground.putExtra("action", action)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intentForeground)
-        } else {
-            startService(intentForeground)
-        }
-        setSeekBar(song)
-    }
-
-    private fun playSong(selected: Int) {
-        when (selected) {
-            0 -> {
-                if (check) {
-                    mediaPlayer.start()
-                    startSeekBarUpdate()
-                } else {
-                    startService(listSong[currentSong], 0)
-                    check = false
-                }
-            }
-
-            1 -> {
-                if (mediaPlayer.isPlaying) {
-                    mediaPlayer.stop()
-                }
-                currentSong = (currentSong - 1) % listSong.size
-                startService(listSong[currentSong], 1)
-            }
-
-            2 -> {
-                if (mediaPlayer.isPlaying) {
-                    mediaPlayer.stop()
-                }
-                currentSong = (currentSong + 1) % listSong.size
-                startService(listSong[currentSong], 2)
-            }
-
-            else -> {
-                startService(listSong[currentSong], 3)
-                mediaPlayer.pause()
-                check = true
-            }
+        binding.btnIncreaseVolume.setOnClickListener {
+            playMusicService?.increaseVolume()
         }
     }
+
+    /*private fun observeMusicState() {
+        lifecycleScope.launch {
+            playMusicService?.musicStateFlow?.asLiveData()?.observe(this@MainActivity) { state ->
+                when (state){
+                    PlayMusicService.PLAY -> {
+                        PlayMusicService.isplaying = !PlayMusicService.isplaying
+                    }
+                }
+            }
+        }
+    }*/
+
 
     private fun setSeekBar(song: Song) {
-        binding.seekBar.max = song.time
-        mediaPlayer = MediaPlayer.create(this, song.song)
-        mediaPlayer.setOnPreparedListener {
-            mediaPlayer.start()
-            startSeekBarUpdate()
+        binding.seekBar.max = 100000
+        lifecycleScope.launch {
+            while (mediaPlayer.isPlaying) {
+                binding.seekBar.progress = mediaPlayer.currentPosition
+                delay(1000)
+            }
         }
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -123,18 +114,13 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun startSeekBarUpdate() {
-        lifecycleScope.launch {
-            while (mediaPlayer.isPlaying) {
-                binding.seekBar.progress = mediaPlayer.currentPosition
-                delay(1000)
-            }
-        }
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         mediaPlayer.release()
+        if (connect){
+            unbindService(connection)
+            connect = false
+        }
     }
 
 }
